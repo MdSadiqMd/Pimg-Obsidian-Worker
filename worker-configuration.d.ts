@@ -3,6 +3,7 @@
 // Runtime types generated with workerd@1.20250525.0 2025-06-05 
 declare namespace Cloudflare {
 	interface Env {
+        GITHUB_TOKEN: string;
 	}
 }
 interface Env extends Cloudflare.Env {}
