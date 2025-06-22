@@ -12,13 +12,6 @@ export default {
             return handleCORS();
         }
 
-        if (request.method !== "GET" || "POST") {
-            return new Response("Method not allowed", {
-                status: 405,
-                headers: getCORSHeaders()
-            });
-        }
-
         if (request.method === "GET") {
             return new Response("Obsidian GitHub Worker is Healthy", {
                 headers: {
