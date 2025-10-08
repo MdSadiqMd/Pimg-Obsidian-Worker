@@ -1,59 +1,57 @@
 import arrayBufferToBase64 from "../utils/array_buffer_to_base64";
-import uploadToGitHub from "./upload_to_github";
+import createGitHubGist from "./create_github_gist";
 import { getCORSHeaders } from "../utils/cors_configuration";
-import createGitHubIssue from "./create_github_issue";
 
 async function handleImageUpload(request: Request, env: Env): Promise<Response> {
     const formData = await request.formData();
     const imageFile = formData.get("image") as File | null;
+    const githubToken = formData.get("githubAccessToken") as string;
+    const githubUsername = formData.get("githubUsername") as string;
+
     if (!imageFile || !imageFile.type.startsWith("image/")) {
         return new Response("Invalid image file", {
             status: 400,
             headers: getCORSHeaders()
         });
     }
+
+    if (!githubToken || !githubUsername) {
+        return new Response("Missing GitHub credentials", {
+            status: 400,
+            headers: getCORSHeaders()
+        });
+    }
+
     const arrayBuffer = await imageFile.arrayBuffer();
     const base64Image = arrayBufferToBase64(arrayBuffer);
     const timestamp = Date.now();
     const fileExtension = imageFile.name.split(".").pop() || "png";
     const fileName = `obsidian-upload-${timestamp}.${fileExtension}`;
-    const GITHUB_OWNER = formData.get("githubUsername") as string;
-    const GITHUB_REPO = formData.get("githubRepository") as string;
-    const uploadResult = await uploadToGitHub(
-        formData.get("githubAccessToken") as string,
-        GITHUB_OWNER,
-        GITHUB_REPO,
+
+    const gistResult = await createGitHubGist(
+        githubToken,
         fileName,
-        base64Image
+        base64Image,
+        imageFile.type
     );
 
-    if (!uploadResult.success) {
-        return new Response(`GitHub upload failed: ${uploadResult.error}`, {
+    if (!gistResult.success) {
+        return new Response(`Gist creation failed: ${gistResult.error}`, {
             status: 500,
             headers: getCORSHeaders()
         });
     }
 
-    const issueResult = await createGitHubIssue(
-        formData.get("githubAccessToken") as string,
-        GITHUB_OWNER,
-        GITHUB_REPO,
-        fileName,
-        uploadResult.downloadUrl as string
-    );
-    if (!issueResult.success) {
-        return new Response(`Issue creation failed: ${issueResult.error}`, {
-            status: 500,
-            headers: getCORSHeaders()
-        });
-    }
+    // proxy URL for the image
+    const url = new URL(request.url);
+    const imageUrl = `${url.origin}/gist/${gistResult.gistId}/${fileName}`;
 
     return new Response(
         JSON.stringify({
             success: true,
-            imageUrl: uploadResult.downloadUrl,
+            imageUrl,
             fileName,
-            issueNumber: issueResult.issueNumber
+            gistId: gistResult.gistId
         }),
         {
             status: 200,
