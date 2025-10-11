@@ -1,43 +1,53 @@
+import type { IssueResult, GitHubErrorResponse } from '../types';
+import { GITHUB_API_BASE_URL, USER_AGENT } from '../constants';
+
+/**
+ * Creates a GitHub Issue with an image
+ */
 async function createGitHubIssue(
     token: string,
     owner: string,
     repo: string,
     fileName: string,
     imageUrl: string
-): Promise<{ success: boolean; error?: string; issueNumber?: number; }> {
-    const url = `https://api.github.com/repos/${owner}/${repo}/issues`;
+): Promise<IssueResult> {
+    const url = `${GITHUB_API_BASE_URL}/repos/${owner}/${repo}/issues`;
+
+    const issuePayload = {
+        title: `Image Upload: ${fileName}`,
+        body: `![${fileName}](${imageUrl})\n\nUploaded via Pimg Worker`
+    };
+
     try {
         const response = await fetch(url, {
-            method: "POST",
+            method: 'POST',
             headers: {
-                "Authorization": `token ${token}`,
-                "User-Agent": "Cloudflare-Worker",
-                "Accept": "application/vnd.github.v3+json",
-                "Content-Type": "application/json"
+                'Authorization': `token ${token}`,
+                'User-Agent': USER_AGENT,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                title: `Image Upload: ${fileName}`,
-                body: `![${fileName}](${imageUrl})\n\nUploaded via Obsidian GitHub Worker`
-            })
+            body: JSON.stringify(issuePayload)
         });
 
         if (!response.ok) {
-            const errorData: any = await response.json();
+            const errorData = await response.json() as GitHubErrorResponse;
             return {
                 success: false,
-                error: `${response.status} - ${errorData.message || "Unknown error"}`
+                error: `${response.status} - ${errorData.message || 'Unknown error'}`
             };
         }
 
-        const data: any = await response.json();
+        const data = await response.json() as { number: number; };
         return {
             success: true,
             issueNumber: data.number
         };
-    } catch (error: any) {
+    } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'Unknown error occurred';
         return {
             success: false,
-            error: error.message
+            error: errorMessage
         };
     }
 }

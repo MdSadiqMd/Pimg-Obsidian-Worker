@@ -1,46 +1,46 @@
-import { getCORSHeaders } from "../utils/cors_configuration";
+import type { GistData, ImageData } from '../types';
+import { GITHUB_API_BASE_URL, USER_AGENT, ERROR_MESSAGES, CACHE_CONTROL } from '../constants';
+import { validateGistRequestParams } from '../utils/validation';
+import { createErrorResponse, createBinaryResponse } from '../utils/response';
 
+/**
+ * Fetches and serves an image from a GitHub Gist
+ */
 async function handleImageRequest(request: Request): Promise<Response> {
-    const url = new URL(request.url);
-    const pathParts = url.pathname.split('/');
-
-    // Expected format: /gist/{gistId}/{filename}
-    if (pathParts.length !== 4 || pathParts[1] !== 'gist') {
-        return new Response("Invalid URL format", {
-            status: 400,
-            headers: getCORSHeaders()
-        });
-    }
-
-    const gistId = pathParts[2];
-    const filename = pathParts[3];
-
     try {
-        const gistResponse = await fetch(`https://api.github.com/gists/${gistId}`, {
+        const url = new URL(request.url);
+        const validation = validateGistRequestParams(url.pathname);
+
+        if (!validation.isValid || !validation.data) {
+            return createErrorResponse(
+                validation.error || ERROR_MESSAGES.INVALID_URL_FORMAT,
+                400
+            );
+        }
+
+        const { gistId, filename } = validation.data;
+
+        // Fetch gist from GitHub
+        const gistResponse = await fetch(`${GITHUB_API_BASE_URL}/gists/${gistId}`, {
             headers: {
-                "Accept": "application/vnd.github.v3+json",
-                "User-Agent": "Pimg-Worker"
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': USER_AGENT
             }
         });
 
         if (!gistResponse.ok) {
-            return new Response("Gist not found", {
-                status: 404,
-                headers: getCORSHeaders()
-            });
+            return createErrorResponse(ERROR_MESSAGES.GIST_NOT_FOUND, 404);
         }
 
-        const gistData: any = await gistResponse.json();
+        const gistData = await gistResponse.json() as GistData;
         const fileData = gistData.files[filename];
 
         if (!fileData) {
-            return new Response("File not found in gist", {
-                status: 404,
-                headers: getCORSHeaders()
-            });
+            return createErrorResponse(ERROR_MESSAGES.FILE_NOT_FOUND, 404);
         }
 
-        const imageData = JSON.parse(fileData.content);
+        // Parse image data from gist content
+        const imageData = JSON.parse(fileData.content) as ImageData;
         const base64Data = imageData.data;
         const mimeType = imageData.mimeType || 'image/png';
 
@@ -51,19 +51,13 @@ async function handleImageRequest(request: Request): Promise<Response> {
             bytes[i] = binaryString.charCodeAt(i);
         }
 
-        return new Response(bytes, {
-            headers: {
-                "Content-Type": mimeType,
-                "Cache-Control": "public, max-age=86400 ", // Cache for 24hrs
-                ...getCORSHeaders()
-            }
+        return createBinaryResponse(bytes, mimeType, {
+            'Cache-Control': CACHE_CONTROL.IMAGE_SERVE
         });
-    } catch (error: any) {
-        console.error("Error serving image:", error);
-        return new Response("Error serving image", {
-            status: 500,
-            headers: getCORSHeaders()
-        });
+    } catch (error) {
+        console.error('Error serving image:', error);
+        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.ERROR_SERVING_IMAGE;
+        return createErrorResponse(errorMessage, 500);
     }
 }
 

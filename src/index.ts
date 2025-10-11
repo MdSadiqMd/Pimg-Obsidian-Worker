@@ -1,50 +1,53 @@
-import handleImageUpload from "./services/handle_image_upload";
-import handleImageRequest from "./services/handle_image_request";
-import { getCORSHeaders, handleCORS } from "./utils/cors_configuration";
+/**
+ * Pimg Worker - Cloudflare Worker for image hosting via GitHub Gists
+ * Main entry point for handling HTTP requests
+ */
 
-export interface Env { }
+import type { Env } from './types';
+import { HTTP_METHODS, ROUTES, ERROR_MESSAGES, SUCCESS_MESSAGES, CACHE_CONTROL } from './constants';
+import { handleCORS } from './utils/cors_configuration';
+import { createTextResponse, createErrorResponse } from './utils/response';
+import handleImageUpload from './services/handle_image_upload';
+import handleImageRequest from './services/handle_image_request';
 
+/**
+ * Main fetch handler for the Cloudflare Worker
+ */
 export default {
     async fetch(
         request: Request,
         env: Env,
-        _ctx: ExecutionContext
+        ctx: ExecutionContext
     ): Promise<Response> {
-        if (request.method === "OPTIONS") {
+        const { method, url } = request;
+        const { pathname } = new URL(url);
+
+        // Handle CORS preflight requests
+        if (method === HTTP_METHODS.OPTIONS) {
             return handleCORS();
         }
 
-        if (request.method === "GET") {
-            const url = new URL(request.url);
-
-            // Handle image serving requests: /gist/{gistId}/{filename}
-            if (url.pathname.startsWith('/gist/')) {
+        // Handle GET requests
+        if (method === HTTP_METHODS.GET) {
+            // Serve images from gist
+            if (pathname.startsWith(ROUTES.GIST_PREFIX)) {
                 return await handleImageRequest(request);
             }
 
-            return new Response("Pimg Gist Worker is Healthy", {
-                headers: {
-                    ...getCORSHeaders(),
-                    "Cache-Control": "max-age=31536000"
-                }
-            });
+            // Health check endpoint
+            return createTextResponse(
+                SUCCESS_MESSAGES.HEALTH_CHECK,
+                200,
+                { 'Cache-Control': CACHE_CONTROL.HEALTH_CHECK }
+            );
         }
 
-        if (request.method === "POST") {
-            try {
-                return await handleImageUpload(request, env);
-            } catch (error) {
-                console.error("Error handling image upload:", error);
-                return new Response("Internal server error", {
-                    status: 500,
-                    headers: getCORSHeaders()
-                });
-            }
+        // Handle POST requests (image uploads)
+        if (method === HTTP_METHODS.POST) {
+            return await handleImageUpload(request, env);
         }
 
-        return new Response("Method not allowed", {
-            status: 405,
-            headers: getCORSHeaders()
-        });
+        // Method not allowed
+        return createErrorResponse(ERROR_MESSAGES.METHOD_NOT_ALLOWED, 405);
     }
 };

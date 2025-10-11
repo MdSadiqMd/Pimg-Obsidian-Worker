@@ -1,66 +1,66 @@
-import arrayBufferToBase64 from "../utils/array_buffer_to_base64";
-import createGitHubGist from "./create_github_gist";
-import { getCORSHeaders } from "../utils/cors_configuration";
+import type { Env, UploadResponse } from '../types';
+import { ERROR_MESSAGES } from '../constants';
+import { validateUploadFormData, generateFileName } from '../utils/validation';
+import { createJsonResponse, createErrorResponse } from '../utils/response';
+import arrayBufferToBase64 from '../utils/array_buffer_to_base64';
+import createGitHubGist from './create_github_gist';
 
+/**
+ * Handles image upload requests
+ */
 async function handleImageUpload(request: Request, env: Env): Promise<Response> {
-    const formData = await request.formData();
-    const imageFile = formData.get("image") as File | null;
-    const githubToken = formData.get("githubAccessToken") as string;
-    const githubUsername = formData.get("githubUsername") as string;
+    try {
+        const formData = await request.formData();
+        const validation = validateUploadFormData(formData);
 
-    if (!imageFile || !imageFile.type.startsWith("image/")) {
-        return new Response("Invalid image file", {
-            status: 400,
-            headers: getCORSHeaders()
-        });
-    }
+        if (!validation.isValid || !validation.data) {
+            return createErrorResponse(
+                validation.error || ERROR_MESSAGES.INVALID_IMAGE,
+                400
+            );
+        }
 
-    if (!githubToken || !githubUsername) {
-        return new Response("Missing GitHub credentials", {
-            status: 400,
-            headers: getCORSHeaders()
-        });
-    }
+        const { image, githubAccessToken, githubUsername } = validation.data;
 
-    const arrayBuffer = await imageFile.arrayBuffer();
-    const base64Image = arrayBufferToBase64(arrayBuffer);
-    const timestamp = Date.now();
-    const fileExtension = imageFile.name.split(".").pop() || "png";
-    const fileName = `obsidian-upload-${timestamp}.${fileExtension}`;
+        // Convert image to base64
+        const arrayBuffer = await image.arrayBuffer();
+        const base64Image = arrayBufferToBase64(arrayBuffer);
 
-    const gistResult = await createGitHubGist(
-        githubToken,
-        fileName,
-        base64Image,
-        imageFile.type
-    );
+        // Generate unique filename
+        const fileName = generateFileName(image.name);
 
-    if (!gistResult.success) {
-        return new Response(`Gist creation failed: ${gistResult.error}`, {
-            status: 500,
-            headers: getCORSHeaders()
-        });
-    }
+        // Create gist with the image
+        const gistResult = await createGitHubGist(
+            githubAccessToken,
+            fileName,
+            base64Image,
+            image.type
+        );
 
-    // proxy URL for the image
-    const url = new URL(request.url);
-    const imageUrl = `${url.origin}/gist/${gistResult.gistId}/${fileName}`;
+        if (!gistResult.success || !gistResult.gistId) {
+            return createErrorResponse(
+                `Gist creation failed: ${gistResult.error}`,
+                500
+            );
+        }
 
-    return new Response(
-        JSON.stringify({
+        // Build proxy URL for the image
+        const url = new URL(request.url);
+        const imageUrl = `${url.origin}/gist/${gistResult.gistId}/${fileName}`;
+
+        const responseData: UploadResponse = {
             success: true,
             imageUrl,
             fileName,
             gistId: gistResult.gistId
-        }),
-        {
-            status: 200,
-            headers: {
-                "Content-Type": "application/json",
-                ...getCORSHeaders()
-            }
-        }
-    );
+        };
+
+        return createJsonResponse(responseData, 200);
+    } catch (error) {
+        console.error('Error handling image upload:', error);
+        const errorMessage = error instanceof Error ? error.message : ERROR_MESSAGES.INTERNAL_SERVER_ERROR;
+        return createErrorResponse(errorMessage, 500);
+    }
 }
 
 export default handleImageUpload;
