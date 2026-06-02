@@ -39,8 +39,24 @@ async function handleImageRequest(request: Request): Promise<Response> {
             return createErrorResponse(ERROR_MESSAGES.FILE_NOT_FOUND, 404);
         }
 
+        // Fetch full content from raw_url if truncated by GitHub API (~1MB limit)
+        let content: string;
+        if (fileData.truncated && fileData.raw_url) {
+            const rawResponse = await fetch(fileData.raw_url, {
+                headers: {
+                    'User-Agent': USER_AGENT
+                }
+            });
+            if (!rawResponse.ok) {
+                return createErrorResponse('Failed to fetch full image data from GitHub', 502);
+            }
+            content = await rawResponse.text();
+        } else {
+            content = fileData.content;
+        }
+
         // Parse image data from gist content
-        const imageData = JSON.parse(fileData.content) as ImageData;
+        const imageData = JSON.parse(content) as ImageData;
         const base64Data = imageData.data;
         const mimeType = imageData.mimeType || 'image/png';
 

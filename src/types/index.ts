@@ -12,6 +12,7 @@ export interface GistFile {
     language?: string;
     raw_url?: string;
     size?: number;
+    truncated?: boolean;
 }
 
 export interface GistData {
